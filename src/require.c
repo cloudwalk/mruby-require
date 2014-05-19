@@ -1,7 +1,17 @@
-#include <err.h>
+
+#if defined(_WIN32) || defined(_WIN64)
+  #include <windows.h>
+  #include <winsock.h>
+  #include <errno.h>
+  #include <io.h>
+  #include <process.h>
+  #define mode_t int
+#else
+  #include <err.h>
+  #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <setjmp.h>
-#include <unistd.h>
 
 #include "mruby.h"
 #include "mruby/compile.h"
