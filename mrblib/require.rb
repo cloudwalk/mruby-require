@@ -6,7 +6,7 @@ module Kernel
     raise TypeError  unless path.class == String
 
     if File.exist?(path) && File.extname(path) == ".mrb"
-      _load_mrb_file path
+      _load_mrb_file File.open(path).read.to_s, path
     elsif File.exist?(path)
       _load_rb_str File.open(path).read.to_s, path
     else

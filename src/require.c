@@ -44,14 +44,16 @@ replace_stop_with_return(mrb_state *mrb, mrb_irep *irep)
 }
 
 static int
-compile_rb2mrb(mrb_state *mrb0, const char *code, int code_len, const char *path, FILE* tmpfp)
+compile_rb2mrb(mrb_state *mrb0, const char *code, int code_len, const char *path, mrb_irep *irep)
 {
   mrb_state *mrb = mrb_open();
   mrb_value result;
   mrbc_context *c;
+  uint8_t *bin = NULL;
   int ret = -1;
   int debuginfo = 1;
-  mrb_irep *irep;
+  size_t bin_size = 0;
+  mrb_irep *irep2;
 
   c = mrbc_context_new(mrb);
   c->no_exec = 1;
@@ -66,8 +68,16 @@ compile_rb2mrb(mrb_state *mrb0, const char *code, int code_len, const char *path
     return MRB_DUMP_GENERAL_FAILURE;
   }
 
-  irep = mrb_proc_ptr(result)->body.irep;
-  ret = mrb_dump_irep_binary(mrb, irep, debuginfo, tmpfp);
+  irep2 = mrb_proc_ptr(result)->body.irep;
+
+  ret = mrb_dump_irep(mrb, irep2, debuginfo, &bin, &bin_size);
+  //if (ret == MRB_DUMP_OK) {
+    //write(fp, bin, bin_size);
+  //}
+  if (ret == MRB_DUMP_OK) {
+    irep = mrb_read_irep(mrb, bin);
+  }
+  mrb_free(mrb, bin);
 
   mrbc_context_free(mrb, c);
   mrb_close(mrb);
@@ -90,13 +100,14 @@ eval_load_irep(mrb_state *mrb, mrb_irep *irep)
   mrb_gc_arena_restore(mrb, ai);
 }
 
+// TODO Scalone : Work with a tmp file.
 static mrb_value
 mrb_require_load_rb_str(mrb_state *mrb, mrb_value self)
 {
   char *path_ptr = NULL;
-  char tmpname[] = "tmp.XXXXXXXX";
-  mode_t mask;
-  FILE *tmpfp = NULL;
+  //char tmpname[] = "tmp.XXXXXXXX";
+  //mode_t mask;
+  //FILE *tmpfp = NULL;
   int fd = -1, ret;
   mrb_irep *irep;
   mrb_value code, path = mrb_nil_value();
@@ -107,30 +118,31 @@ mrb_require_load_rb_str(mrb_state *mrb, mrb_value self)
   }
   path_ptr = mrb_str_to_cstr(mrb, path);
 
-  mask = umask(077);
-  fd = mkstemp(tmpname);
-  if (fd == -1) {
-    mrb_sys_fail(mrb, "can't create mkstemp() at mrb_require_load_rb_str");
-  }
-  umask(mask);
+  //mask = umask(077);
+  //fd = mkstemp(tmpname);
+  //if (fd == -1) {
+    //mrb_sys_fail(mrb, "can't create mkstemp() at mrb_require_load_rb_str");
+  //}
+  //umask(mask);
 
-  tmpfp = fopen(tmpname, "w+");
-  if (tmpfp == NULL) {
-    mrb_sys_fail(mrb, "can't open temporay file at mrb_require_load_rb_str");
-  }
+  //open(to, O_CREATE);
+  //tmpfp = open(to, O_RDWR);
+  //if (tmpfp < 0) {
+    //mrb_sys_fail(mrb, "can't open temporay file at mrb_require_load_rb_str");
+  //}
 
-  ret = compile_rb2mrb(mrb, RSTRING_PTR(code), RSTRING_LEN(code), path_ptr, tmpfp);
+  ret = compile_rb2mrb(mrb, RSTRING_PTR(code), RSTRING_LEN(code), path_ptr, irep);
   if (ret != MRB_DUMP_OK) {
-    fclose(tmpfp);
-    remove(tmpname);
+    //fclose(tmpfp);
+    //remove(tmpname);
     mrb_raisef(mrb, E_LOAD_ERROR, "can't load file -- %S", path);
     return mrb_nil_value();
   }
 
-  rewind(tmpfp);
-  irep = mrb_read_irep_file(mrb, tmpfp);
-  fclose(tmpfp);
-  remove(tmpname);
+  //rewind(tmpfp);
+  //irep = mrb_read_irep_file(mrb, tmpfp);
+  //fclose(tmpfp);
+  //remove(tmpname);
 
   if (irep) {
     eval_load_irep(mrb, irep);
@@ -149,20 +161,21 @@ static mrb_value
 mrb_require_load_mrb_file(mrb_state *mrb, mrb_value self)
 {
   char *path_ptr = NULL;
-  FILE *fp = NULL;
+  //char tmpname[] = "tmp.XXXXXXXX";
+  //mode_t mask;
+  //FILE *tmpfp = NULL;
+  int fd = -1, ret;
   mrb_irep *irep;
-  mrb_value path;
+  mrb_value code, path = mrb_nil_value();
 
-  mrb_get_args(mrb, "S", &path);
+  mrb_get_args(mrb, "S|S", &code, &path);
+  if (!mrb_string_p(path)) {
+    path = mrb_str_new_cstr(mrb, "-");
+  }
   path_ptr = mrb_str_to_cstr(mrb, path);
 
-  fp = fopen(path_ptr, "rb");
-  if (fp == NULL) {
-    mrb_raisef(mrb, E_LOAD_ERROR, "can't open file -- %S", path);
-  }
-
-  irep = mrb_read_irep_file(mrb, fp);
-  fclose(fp);
+  //irep = mrb_load_irep(mrb, RSTRING_PTR(code));
+  irep = mrb_read_irep(mrb, RSTRING_PTR(code));
 
   if (irep) {
     eval_load_irep(mrb, irep);
@@ -184,7 +197,7 @@ mrb_mruby_require_gem_init(mrb_state *mrb)
   krn = mrb->kernel_module;
 
   mrb_define_method(mrb, krn, "_load_rb_str",   mrb_require_load_rb_str,   MRB_ARGS_ANY());
-  mrb_define_method(mrb, krn, "_load_mrb_file", mrb_require_load_mrb_file, MRB_ARGS_REQ(1));
+  mrb_define_method(mrb, krn, "_load_mrb_file", mrb_require_load_mrb_file, MRB_ARGS_ANY());
 }
 
 void
