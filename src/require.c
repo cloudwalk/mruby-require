@@ -10,7 +10,7 @@
   #include <err.h>
   #include <unistd.h>
 #endif
-#include <fcntl.h>
+
 #include <setjmp.h>
 
 #include "mruby.h"
@@ -43,48 +43,6 @@ replace_stop_with_return(mrb_state *mrb, mrb_irep *irep)
   }
 }
 
-static int
-compile_rb2mrb(mrb_state *mrb0, const char *code, int code_len, const char *path, mrb_irep *irep)
-{
-  mrb_state *mrb = mrb_open();
-  mrb_value result;
-  mrbc_context *c;
-  uint8_t *bin = NULL;
-  int ret = -1;
-  int debuginfo = 1;
-  size_t bin_size = 0;
-  mrb_irep *irep2;
-
-  c = mrbc_context_new(mrb);
-  c->no_exec = 1;
-  if (path != NULL) {
-    mrbc_filename(mrb, c, path);
-  }
-
-  result = mrb_load_nstring_cxt(mrb, code, code_len, c);
-  if (mrb_undef_p(result)) {
-    mrbc_context_free(mrb, c);
-    mrb_close(mrb);
-    return MRB_DUMP_GENERAL_FAILURE;
-  }
-
-  irep2 = mrb_proc_ptr(result)->body.irep;
-
-  ret = mrb_dump_irep(mrb, irep2, debuginfo, &bin, &bin_size);
-  //if (ret == MRB_DUMP_OK) {
-    //write(fp, bin, bin_size);
-  //}
-  if (ret == MRB_DUMP_OK) {
-    irep = mrb_read_irep(mrb, bin);
-  }
-  mrb_free(mrb, bin);
-
-  mrbc_context_free(mrb, c);
-  mrb_close(mrb);
-
-  return ret;
-}
-
 static void
 eval_load_irep(mrb_state *mrb, mrb_irep *irep)
 {
@@ -100,14 +58,9 @@ eval_load_irep(mrb_state *mrb, mrb_irep *irep)
   mrb_gc_arena_restore(mrb, ai);
 }
 
-// TODO Scalone : Work with a tmp file.
 static mrb_value
 mrb_require_load_rb_str(mrb_state *mrb, mrb_value self)
 {
-  char *path_ptr = NULL;
-  //char tmpname[] = "tmp.XXXXXXXX";
-  //mode_t mask;
-  //FILE *tmpfp = NULL;
   int fd = -1, ret;
   mrb_irep *irep;
   mrb_value code, path = mrb_nil_value();
@@ -116,54 +69,14 @@ mrb_require_load_rb_str(mrb_state *mrb, mrb_value self)
   if (!mrb_string_p(path)) {
     path = mrb_str_new_cstr(mrb, "-");
   }
-  path_ptr = mrb_str_to_cstr(mrb, path);
 
-  //mask = umask(077);
-  //fd = mkstemp(tmpname);
-  //if (fd == -1) {
-    //mrb_sys_fail(mrb, "can't create mkstemp() at mrb_require_load_rb_str");
-  //}
-  //umask(mask);
-
-  //open(to, O_CREATE);
-  //tmpfp = open(to, O_RDWR);
-  //if (tmpfp < 0) {
-    //mrb_sys_fail(mrb, "can't open temporay file at mrb_require_load_rb_str");
-  //}
-
-  ret = compile_rb2mrb(mrb, RSTRING_PTR(code), RSTRING_LEN(code), path_ptr, irep);
-  if (ret != MRB_DUMP_OK) {
-    //fclose(tmpfp);
-    //remove(tmpname);
-    mrb_raisef(mrb, E_LOAD_ERROR, "can't load file -- %S", path);
-    return mrb_nil_value();
-  }
-
-  //rewind(tmpfp);
-  //irep = mrb_read_irep_file(mrb, tmpfp);
-  //fclose(tmpfp);
-  //remove(tmpname);
-
-  if (irep) {
-    eval_load_irep(mrb, irep);
-  } else if (mrb->exc) {
-    // fail to load
-    longjmp(*(jmp_buf*)mrb->jmp, 1);
-  } else {
-    mrb_raisef(mrb, E_LOAD_ERROR, "can't load file -- %S", path);
-    return mrb_nil_value();
-  }
-
-  return mrb_true_value();
+  return mrb_load_nstring(mrb, RSTRING_PTR(code), RSTRING_LEN(code));
 }
 
 static mrb_value
 mrb_require_load_mrb_file(mrb_state *mrb, mrb_value self)
 {
   char *path_ptr = NULL;
-  //char tmpname[] = "tmp.XXXXXXXX";
-  //mode_t mask;
-  //FILE *tmpfp = NULL;
   int fd = -1, ret;
   mrb_irep *irep;
   mrb_value code, path = mrb_nil_value();
@@ -174,7 +87,6 @@ mrb_require_load_mrb_file(mrb_state *mrb, mrb_value self)
   }
   path_ptr = mrb_str_to_cstr(mrb, path);
 
-  //irep = mrb_load_irep(mrb, RSTRING_PTR(code));
   irep = mrb_read_irep(mrb, RSTRING_PTR(code));
 
   if (irep) {
